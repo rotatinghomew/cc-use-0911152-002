@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from robot_corpus.session.contracts import Decision, DomainRecord, canonical_json, stable_hash, utc_now
+from robot_corpus.synchronization.timeline import coverage_lattice, coverage_review
 
 
 def ensure_output(path: str | Path) -> Path:
@@ -52,10 +53,16 @@ def build_summary(records: list[DomainRecord], decisions: Mapping[str, Decision]
     for decision in decisions.values():
         outcomes[decision.outcome] = outcomes.get(decision.outcome, 0) + 1
     scores = [decision.score for decision in decisions.values()]
+    coverage = coverage_lattice(records)
     return {"product": '工业机器人具身数据采集编排中心', "entity": 'capture_session', "generated_at": utc_now(),
             "record_count": len(records), "decision_count": len(decisions), "outcomes": outcomes,
             "average_score": sum(scores) / len(scores) if scores else 0.0,
             "minimum_score": min(scores) if scores else 0.0, "maximum_score": max(scores) if scores else 0.0,
+            "coverage_methodology": coverage["methodology"],
+            "coverage": {key: coverage[key] for key in (
+                "effective_coverage", "applicable_triple_count", "distinct_covered_triple_count",
+                "duplicate_session_count", "inapplicable_slot_count", "quarantined_session_count",
+                "missing_slot_count")},
             "repository": snapshot}
 
 
@@ -66,9 +73,12 @@ def export_bundle(output: str | Path, records: list[DomainRecord], decisions: Ma
     record_count = write_records(root / "records.csv", records, decisions)
     rule_count = write_rules(root / "rules.csv", decisions)
     summary_hash = write_json(root / "summary.json", summary)
+    # 覆盖摘要与会话门禁、封存清单使用同一口径版本，独立成文件以便追溯与重放。
+    coverage_hash = write_json(root / "coverage.json", coverage_lattice(records))
     decision_hash = write_json(root / "decisions.json", [value.as_dict() for _, value in sorted(decisions.items())])
     event_hash = write_json(root / "audit-events.json", events)
-    manifest = {"files": {"summary.json": summary_hash, "decisions.json": decision_hash,
+    manifest = {"files": {"summary.json": summary_hash, "coverage.json": coverage_hash,
+                           "decisions.json": decision_hash,
                            "audit-events.json": event_hash}, "record_rows": record_count,
                 "rule_rows": rule_count, "created_at": utc_now()}
     manifest["manifest_hash"] = stable_hash(manifest)

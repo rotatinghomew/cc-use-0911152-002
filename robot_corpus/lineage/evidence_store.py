@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
 from robot_corpus.session.contracts import Decision, DomainRecord, ContractError, canonical_json, stable_hash, utc_now
-from robot_corpus.delivery.sealed_dataset import prepare_datasets, seal_dataset, read_dataset
+from robot_corpus.delivery.sealed_dataset import migrate_coverage_view, prepare_datasets, seal_dataset, read_dataset
 
 
 SCHEMA = """
@@ -86,7 +86,8 @@ class Repository:
             connection.executescript(SCHEMA)
             prepare_datasets(connection)
 
-    def publish_dataset(self, dataset_id: str, session_ids: list[str]) -> dict[str, Any]:
+    def publish_dataset(self, dataset_id: str, session_ids: list[str],
+                        min_effective_coverage: float = 0.0) -> dict[str, Any]:
         if not session_ids or len(session_ids) != len(set(session_ids)):
             raise ContractError("dataset needs distinct session identifiers")
         with self.transaction() as connection:
@@ -97,11 +98,17 @@ class Repository:
             sessions = [DomainRecord(row["record_id"], json.loads(row["payload_json"]),
                                      row["state"], row["version"], row["occurred_at"], row["source"])
                         for row in rows]
-            return seal_dataset(connection, dataset_id, sessions)
+            return seal_dataset(connection, dataset_id, sessions,
+                                min_effective_coverage=min_effective_coverage)
 
     def dataset_manifest(self, dataset_id: str) -> dict[str, Any]:
         with self.connect() as connection:
             return read_dataset(connection, dataset_id)
+
+    def migrate_dataset_coverage(self, dataset_id: str) -> dict[str, Any]:
+        """按 v2 口径复核历史数据集，保留原数字并给出来源会话与质量判断的差异说明。"""
+        with self.connect() as connection:
+            return migrate_coverage_view(connection, dataset_id)
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:

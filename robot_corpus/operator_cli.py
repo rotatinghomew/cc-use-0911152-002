@@ -20,6 +20,11 @@ def parser() -> argparse.ArgumentParser:
     check.add_argument("--output", required=True)
     inspect = commands.add_parser("inspect")
     inspect.add_argument("--database", required=True)
+    migrate = commands.add_parser(
+        "migrate-coverage",
+        help="按 v2 覆盖口径复核已封存数据集，保留历史数字并输出来源会话与质量判断的差异")
+    migrate.add_argument("--database", required=True)
+    migrate.add_argument("--dataset", required=True)
     return root
 
 
@@ -29,6 +34,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = run(args.fixture, args.database, args.output)
     elif args.command == "verify":
         result = verify(args.database, args.output)
+    elif args.command == "migrate-coverage":
+        result = Application(args.database).migrate_dataset_coverage(args.dataset)
     else:
         result = Application(args.database).inspect()
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
